@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Leaflet map styles */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  z-index: 1;
+}
+
+/* Ensure marker pane is visible */
+.leaflet-marker-pane {
+  z-index: 600 !important;
+}
+
+.leaflet-marker-icon {
+  z-index: 1000 !important;
+}
+
+/* Custom vehicle marker styles */
+.custom-vehicle-marker {
+  background: none !important;
+  border: none !important;
+  z-index: 1000 !important;
+}
+
+.custom-vehicle-marker div {
+  margin: 0 !important;
+}
+
+/* Smooth transitions for marker updates */
+.custom-vehicle-marker {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Custom marker styles - legacy support */
+.custom-marker {
+  background: none !important;
+  border: none !important;
+  z-index: 1000 !important;
+}
+
+.custom-marker div {
+  margin: 0 !important;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
