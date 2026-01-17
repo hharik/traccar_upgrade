@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Navigation from '@/components/Navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import type { TraccarDevice, TraccarPosition } from '@/types/traccar';
 
 // Import MapView dynamically to avoid SSR issues with Leaflet
@@ -19,17 +20,20 @@ const MapView = dynamic(() => import('@/components/MapView'), {
 });
 
 export default function MapPage() {
+  const { user, loading: authLoading, logout } = useAuth();
   const [devices, setDevices] = useState<TraccarDevice[]>([]);
   const [positions, setPositions] = useState<TraccarPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchData();
-    // Set up polling for real-time updates
-    const interval = setInterval(fetchData, 10000); // Update every 10 seconds for map
-    return () => clearInterval(interval);
-  }, []);
+    if (user) {
+      fetchData();
+      // Set up polling for real-time updates
+      const interval = setInterval(fetchData, 10000); // Update every 10 seconds for map
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
   const fetchData = async () => {
     try {
@@ -47,12 +51,21 @@ export default function MapPage() {
       const devicesData = await devicesRes.json();
       const positionsData = await positionsRes.json();
 
+      // Filter devices based on user's assigned device IDs (if not admin)
+      let filteredDevices = devicesData;
+      if (user && user.role !== 'ADMIN' && user.traccarDeviceIds.length > 0) {
+        filteredDevices = devicesData.filter((device: TraccarDevice) => 
+          user.traccarDeviceIds.includes(device.id)
+        );
+      }
+
       console.log('[MapPage] Fetched devices:', devicesData.length);
       console.log('[MapPage] Fetched positions:', positionsData.length);
+      console.log('[MapPage] Filtered devices:', filteredDevices.length);
       console.log('[MapPage] First device:', devicesData[0]);
       console.log('[MapPage] First position:', positionsData[0]);
 
-      setDevices(devicesData);
+      setDevices(filteredDevices);
       setPositions(positionsData);
       setError(null);
     } catch (err: any) {
@@ -63,7 +76,7 @@ export default function MapPage() {
     }
   };
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <>
         <Navigation />
@@ -100,6 +113,25 @@ export default function MapPage() {
 
   return (
     <div className="h-screen flex flex-col relative">
+      {/* User Header */}
+      <div className="bg-white border-b shadow-sm px-4 py-2 flex items-center justify-between z-[9998]">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600">Welcome,</span>
+          <span className="text-sm font-semibold text-gray-900">{user?.name}</span>
+          {user?.role === 'ADMIN' && (
+            <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full font-medium">
+              Admin
+            </span>
+          )}
+        </div>
+        <button
+          onClick={logout}
+          className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+        >
+          Logout
+        </button>
+      </div>
+
       <div className="flex-1 overflow-hidden pb-[70px]">
         <MapView devices={devices} positions={positions} />
       </div>

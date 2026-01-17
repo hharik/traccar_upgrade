@@ -36,6 +36,7 @@ export default function MapView({ devices, positions }: MapViewProps) {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showHistoryMenu, setShowHistoryMenu] = useState(false);
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Initialize map
   useEffect(() => {
@@ -497,58 +498,147 @@ export default function MapView({ devices, positions }: MapViewProps) {
         )}
       </div>
 
-      {/* Sidebar with vehicle list */}
-      <div className="w-80 bg-white shadow-lg overflow-y-auto" style={{ zIndex: 2 }}>
-        <div className="p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
-          <h2 className="text-lg font-bold text-gray-900">Vehicles</h2>
-          <p className="text-sm text-gray-600">{devices.length} total</p>
+      {/* Compact Hovering Vehicle List */}
+      <div 
+        className="absolute left-4 top-20 z-[1000] w-72 max-h-[calc(100vh-180px)] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl overflow-hidden border border-gray-200/50"
+        style={{ backdropFilter: 'blur(12px)' }}
+      >
+        {/* Header */}
+        <div className="px-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 sticky top-0 z-10">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h2 className="text-sm font-bold text-white">Vehicles</h2>
+              <p className="text-xs text-indigo-100">{devices.length} total • {devices.filter(d => d.status === 'online').length} online</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-xs text-white font-medium">Live</span>
+            </div>
+          </div>
+          
+          {/* Search Input */}
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search vehicles..."
+              className="w-full px-3 py-2 pl-9 text-sm bg-white/90 backdrop-blur-sm rounded-lg border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/50 text-gray-900 placeholder-gray-500"
+            />
+            <svg 
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors"
+              >
+                <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
         
-        <div className="divide-y divide-gray-200">
-          {devices.map((device) => {
-            const position = getDevicePosition(device.id);
-            const isOnline = device.status === 'online';
-            const isSelected = selectedDevice?.id === device.id;
-            
-            return (
-              <div
-                key={device.id}
-                onClick={() => zoomToDevice(device)}
-                className={`w-full p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  isSelected ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 truncate">
-                      {device.name}
+        {/* Scrollable Vehicle List */}
+        <div className="overflow-y-auto max-h-[calc(100vh-280px)] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+          <div className="p-2 space-y-1.5">
+            {/* Filter devices based on search query */}
+            {devices.filter(device => 
+              device.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              device.uniqueId?.toLowerCase().includes(searchQuery.toLowerCase())
+            ).length === 0 ? (
+              <div className="text-center py-8 px-4">
+                <div className="text-4xl mb-2">🔍</div>
+                <p className="text-sm text-gray-600">No vehicles found</p>
+                <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
+              </div>
+            ) : (
+              devices.filter(device => 
+                device.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                device.uniqueId?.toLowerCase().includes(searchQuery.toLowerCase())
+              ).map((device) => {
+              const position = getDevicePosition(device.id);
+              const isOnline = device.status === 'online';
+              const isSelected = selectedDevice?.id === device.id;
+              
+              return (
+                <div
+                  key={device.id}
+                  onClick={() => zoomToDevice(device)}
+                  className={`
+                    relative p-2.5 rounded-xl cursor-pointer transition-all duration-200
+                    ${isSelected 
+                      ? 'bg-indigo-100 border-2 border-indigo-500 shadow-md scale-[1.02]' 
+                      : 'bg-white border border-gray-200 hover:border-indigo-300 hover:shadow-md hover:scale-[1.01]'
+                    }
+                  `}
+                >
+                  {/* Status Indicator */}
+                  <div className="absolute top-2 right-2">
+                    <div className={`
+                      w-2 h-2 rounded-full
+                      ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}
+                    `} />
+                  </div>
+
+                  <div className="pr-4">
+                    {/* Vehicle Name */}
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-lg">🚗</span>
+                      <div className="font-semibold text-gray-900 text-sm truncate">
+                        {device.name}
+                      </div>
                     </div>
+                    
                     {position ? (
-                      <>
-                        <div className="text-sm text-gray-600 mt-1">
-                          <div className="flex items-center gap-2">
-                            <span>🏃</span>
-                            <span>{Math.round(position.speed * 1.852)} km/h</span>
+                      <div className="space-y-1">
+                        {/* Speed */}
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 flex items-center justify-center bg-blue-100 rounded text-xs">
+                            ⚡
                           </div>
-                          {position.address && (
-                            <div className="text-xs text-gray-500 mt-1 truncate">
-                              {position.address}
+                          <span className="text-xs font-medium text-gray-700">
+                            {Math.round(position.speed * 1.852)} km/h
+                          </span>
+                        </div>
+                        
+                        {/* Location (if available) */}
+                        {position.address && (
+                          <div className="flex items-start gap-1.5">
+                            <div className="w-5 h-5 flex items-center justify-center bg-green-100 rounded text-xs mt-0.5">
+                              📍
                             </div>
-                          )}
+                            <span className="text-xs text-gray-600 line-clamp-2 flex-1">
+                              {position.address}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Last Update */}
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded text-xs">
+                            🕐
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {new Date(position.fixTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         </div>
-                        <div className="text-xs text-gray-400 mt-1">
-                          {new Date(position.fixTime).toLocaleTimeString()}
-                        </div>
-                      </>
+                      </div>
                     ) : (
-                      <div className="text-sm text-gray-400 mt-1">No position data</div>
+                      <div className="text-xs text-gray-400 italic">No position data</div>
                     )}
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            }))}
+          </div>
         </div>
       </div>
 
