@@ -13,20 +13,38 @@ A modern GPS vehicle tracking and fleet management web application bui### 🎯 *
 - [x] **Real-time vehicle tracking on map**
 - [x] **Vehicle status indicators (online/offline)**
 
-### Phase 2: Enhanced Features (In Progress)
+### Phase 2: Enhanced Features ✅
 - [x] Map integration with Leaflet
-- [x] Visual route tracking
-- [ ] Authentication system with NextAuthjs, integrating with Traccar server API.
+- [x] Visual route tracking with history playback
+- [x] **Multiple map layer options (Google Maps, OpenStreetMap, Carto)**
+- [x] **Real-time map layer switching**
+- [x] **Vehicle search functionality**
+- [x] **Compact hovering vehicle list with glassmorphism**
+- [x] Authentication system with Prisma + SQLite
+- [x] Role-based access control (Admin/Client)
+- [x] User management dashboard
 
 ## 🚀 Features
 
 - **Real-Time Tracking**: Monitor your fleet in real-time with live GPS data
+- **Interactive Map View**: Advanced map interface with vehicle markers, status indicators, and live updates
+- **Multiple Map Layers**: Choose from 7 different map styles:
+  - 🛰️ **Google Hybrid** (Satellite + Labels) - Default
+  - 🌍 **Google Satellite** (Pure satellite imagery)
+  - 🗺️ **Google Streets** (Standard road map)
+  - ⛰️ **Google Terrain** (Topographic map)
+  - 🌐 **OpenStreetMap** (Community-driven)
+  - ☀️ **Carto Light** (Minimalist light theme)
+  - 🌙 **Carto Dark** (Dark mode for night use)
+- **Vehicle Search**: Quick search functionality to find specific vehicles by name or ID
 - **Modern Dashboard**: Beautiful, responsive dashboard built with Tailwind CSS
 - **Traccar Integration**: Seamless integration with your existing Traccar server
 - **Vehicle Management**: View and manage all your vehicles in one place
+- **Route History Playback**: View historical routes with customizable date ranges (24h, yesterday, 7 days, custom)
 - **Reports & Analytics**: Generate detailed reports on routes, trips, and fleet performance
 - **Geofencing**: Create and manage geofences for your vehicles
-- **Secure Authentication**: Built-in authentication system with NextAuth
+- **Secure Authentication**: Role-based access control with admin and client user roles
+- **Compact Vehicle List**: Hovering panel with glassmorphism effect showing all vehicles at a glance
 
 ## 📋 Prerequisites
 
@@ -72,6 +90,40 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### 4. Access the Dashboard
 
 Navigate to [http://localhost:3000/dashboard](http://localhost:3000/dashboard) to view your fleet.
+
+## 🎮 Usage Guide
+
+### Map Interface Features:
+
+1. **Changing Map Layers**
+   - Click the "Map Layer" button (top-right corner)
+   - Select from 7 different map styles
+   - Current layer: Google Hybrid (default)
+
+2. **Searching for Vehicles**
+   - Use the search bar in the vehicle list panel
+   - Search by vehicle name or unique ID
+   - Results update in real-time as you type
+
+3. **Viewing Vehicle Details**
+   - Click any vehicle in the list to zoom to its location
+   - Click the vehicle marker on the map for detailed info
+   - See speed, location, last update time, and status
+
+4. **History Playback**
+   - Click "View History" button in vehicle popup
+   - Choose from quick options:
+     - Last 24 Hours
+     - Yesterday
+     - Last 7 Days
+     - Custom Date Range (up to 30 days)
+   - Watch animated route playback with adjustable speed
+
+5. **Authentication**
+   - Default admin credentials: `admin@followtrack.com` / `Admin@123`
+   - Create client users via Admin Panel
+   - Clients see only assigned vehicles
+   - Admins see all vehicles
 
 ## 📁 Project Structure
 
@@ -119,6 +171,60 @@ The application integrates with the following Traccar API endpoints:
 - `/api/reports/summary` - Get summary reports
 - `/api/geofences` - Manage geofences
 
+## 🗺️ Map Layers
+
+The application supports multiple map layer providers with instant switching:
+
+### Available Map Layers:
+
+1. **Google Hybrid** (Default)
+   - Satellite imagery with street labels
+   - Best for: Vehicle tracking with real-world context
+   - Max Zoom: 20
+
+2. **Google Satellite**
+   - Pure satellite imagery without labels
+   - Best for: Clear aerial view
+   - Max Zoom: 20
+
+3. **Google Streets**
+   - Standard road map view
+   - Best for: Navigation and street-level detail
+   - Max Zoom: 20
+
+4. **Google Terrain**
+   - Topographic map with elevation
+   - Best for: Off-road tracking and terrain analysis
+   - Max Zoom: 20
+
+5. **OpenStreetMap**
+   - Community-driven open-source map
+   - Best for: Detailed local information
+   - Max Zoom: 19
+
+6. **Carto Light**
+   - Minimalist light theme
+   - Best for: Clean, distraction-free viewing
+   - Max Zoom: 19
+
+7. **Carto Dark**
+   - Dark theme for low-light environments
+   - Best for: Night-time monitoring and reduced eye strain
+   - Max Zoom: 19
+
+### How to Change Map Layers:
+
+1. Click the **Map Layer** button in the top-right corner of the map
+2. Select your preferred map style from the dropdown
+3. The map updates instantly while maintaining your current view and zoom level
+
+### Technical Implementation:
+
+- Uses Leaflet.js tile layers
+- Real-time layer switching without page reload
+- Maintains markers and vehicle positions during transitions
+- Responsive design works on all screen sizes
+
 ## 🎯 Next Steps
 
 ### Phase 1: Current (Basic Integration) ✅
@@ -129,21 +235,24 @@ The application integrates with the following Traccar API endpoints:
 - [x] Real-time position display
 
 ### Phase 2: Enhanced Features (Coming Soon)
-- [ ] Authentication system with NextAuth
-- [ ] Map integration (Leaflet/Mapbox)
-- [ ] Visual route tracking
-- [ ] Advanced filtering and search
+- [x] Authentication system with Prisma + SQLite
+- [x] Map integration (Leaflet)
+- [x] Visual route tracking
+- [x] Advanced filtering and search
+- [x] Multiple map layer options
 - [ ] Custom reporting dashboard
 - [ ] Geofence management UI
+- [ ] Advanced analytics and charts
 
-### Phase 3: Advanced Features
-- [ ] Multi-user support with role-based access
-- [ ] Customer portal
-- [ ] Driver management
-- [ ] Maintenance scheduling
-- [ ] Fuel tracking
-- [ ] Billing integration
+### Phase 3: Advanced Features (Roadmap)
+- [ ] Driver management and assignments
+- [ ] Maintenance scheduling and alerts
+- [ ] Fuel consumption tracking
+- [ ] Cost and billing integration
+- [ ] Email/SMS notifications for alerts
 - [ ] Mobile app (React Native)
+- [ ] Multi-language support
+- [ ] Export reports to PDF/Excel
 
 ## 🔒 Security Notes
 
