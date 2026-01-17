@@ -4,11 +4,22 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { TraccarDevice, TraccarPosition } from '@/types/traccar';
+import axios from 'axios';
 
 interface HistoryPlayerProps {
   device: TraccarDevice;
   positions: TraccarPosition[];
   onClose: () => void;
+}
+
+interface TraccarSummary {
+  deviceId: number;
+  deviceName: string;
+  maxSpeed: number; // in knots
+  averageSpeed: number;
+  distance: number; // in meters
+  engineHours: number; // in milliseconds
+  spentFuel: number;
 }
 
 export default function HistoryPlayer({ device, positions, onClose }: HistoryPlayerProps) {
@@ -20,6 +31,39 @@ export default function HistoryPlayer({ device, positions, onClose }: HistoryPla
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(1); // 1x, 2x, 5x, 10x
+  const [summary, setSummary] = useState<TraccarSummary | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(true);
+
+  // Fetch summary data from Traccar
+  useEffect(() => {
+    if (positions.length === 0) return;
+
+    const fetchSummary = async () => {
+      try {
+        setLoadingSummary(true);
+        const from = new Date(positions[0].fixTime).toISOString();
+        const to = new Date(positions[positions.length - 1].fixTime).toISOString();
+        
+        const response = await axios.get('/api/reports/summary', {
+          params: {
+            deviceId: device.id,
+            from,
+            to,
+          },
+        });
+
+        if (response.data && response.data.length > 0) {
+          setSummary(response.data[0]);
+        }
+      } catch (error) {
+        console.error('[Summary] Error fetching summary:', error);
+      } finally {
+        setLoadingSummary(false);
+      }
+    };
+
+    fetchSummary();
+  }, [positions, device.id]);
 
   // Initialize map
   useEffect(() => {
@@ -139,9 +183,32 @@ export default function HistoryPlayer({ device, positions, onClose }: HistoryPla
   };
 
   const currentPosition = positions[currentIndex];
+  
   const duration = positions.length > 0 
     ? (new Date(positions[positions.length - 1].fixTime).getTime() - new Date(positions[0].fixTime).getTime()) / 1000 / 60
     : 0;
+
+  // Helper function to format time from milliseconds
+  const formatTime = (milliseconds: number) => {
+    const seconds = Math.floor(milliseconds / 1000);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
+    }
+  };
+
+  // Calculate stopped time (total time - engine hours)
+  const totalTime = positions.length > 0 
+    ? (new Date(positions[positions.length - 1].fixTime).getTime() - new Date(positions[0].fixTime).getTime())
+    : 0;
+  const stoppedTime = summary ? totalTime - summary.engineHours : 0;
 
   return (
     <div className="fixed inset-0 z-[10000] bg-black bg-opacity-50 flex items-center justify-center">
@@ -160,6 +227,70 @@ export default function HistoryPlayer({ device, positions, onClose }: HistoryPla
           >
             ✕ Close
           </button>
+        </div>
+
+        {/* Statistics Bar */}
+        <div className="bg-gradient-to-r from-gray-50 to-gray-100 border-b px-4 py-3">
+          {loadingSummary ? (
+            <div className="flex items-center justify-center gap-2 py-4">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"></div>
+              <span className="text-sm text-gray-600">Loading statistics...</span>
+            </div>
+          ) : summary ? (
+            <div className="grid grid-cols-4 gap-4 max-w-4xl">
+              <div className="bg-white rounded-lg px-4 py-2 shadow-sm border border-blue-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-lg">🚀</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 font-medium">Top Speed</div>
+                    <div className="text-lg font-bold text-blue-600">{Math.round(summary.maxSpeed * 1.852)} km/h</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg px-4 py-2 shadow-sm border border-green-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                    <span className="text-lg">🚗</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 font-medium">Driving Time</div>
+                    <div className="text-lg font-bold text-green-600">{formatTime(summary.engineHours)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg px-4 py-2 shadow-sm border border-red-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                    <span className="text-lg">⏸️</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 font-medium">Stopped Time</div>
+                    <div className="text-lg font-bold text-red-600">{formatTime(stoppedTime)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg px-4 py-2 shadow-sm border border-purple-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <span className="text-lg">📍</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 font-medium">Distance</div>
+                    <div className="text-lg font-bold text-purple-600">{(summary.distance / 1000).toFixed(1)} km</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-sm text-gray-500">
+              No summary data available
+            </div>
+          )}
         </div>
 
         {/* Map */}
