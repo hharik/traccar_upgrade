@@ -40,6 +40,11 @@ export default function MapView({ devices, positions }: MapViewProps) {
   const [selectedMapLayer, setSelectedMapLayer] = useState<string>('googleHybrid');
   const [showMapSelector, setShowMapSelector] = useState(false);
   const currentLayerRef = useRef<L.TileLayer | null>(null);
+  const animationFrameRef = useRef<{ [key: number]: number }>({});
+  const lastPositionRef = useRef<{ [key: number]: { lat: number; lng: number; course: number; speed: number; timestamp: number } }>({});
+  const popupStateRef = useRef<{ [key: number]: boolean }>({}); // Track which popups are open
+  const [followMode, setFollowMode] = useState(false); // Track if we're following a vehicle
+  const followingDeviceRef = useRef<number | null>(null); // Which device we're following
 
   // Available map layers
   const mapLayers = {
@@ -87,6 +92,122 @@ export default function MapView({ devices, positions }: MapViewProps) {
     },
   };
 
+  // Smooth marker animation function with predictive positioning
+  const animateMarker = (
+    marker: L.Marker,
+    deviceId: number,
+    startLatLng: L.LatLng,
+    endLatLng: L.LatLng,
+    speed: number,
+    course: number,
+    duration: number = 2000 // Reduced to 2 seconds for quicker response
+  ) => {
+    // Cancel any existing animation for this device
+    if (animationFrameRef.current[deviceId]) {
+      cancelAnimationFrame(animationFrameRef.current[deviceId]);
+    }
+
+    // Check if popup is open and close it temporarily
+    const wasOpen = marker.isPopupOpen();
+    if (wasOpen) {
+      popupStateRef.current[deviceId] = true;
+      marker.closePopup();
+    }
+
+    const startTime = Date.now();
+    
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function for smooth animation (ease-out for natural deceleration)
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
+      
+      // Interpolate between start and end positions
+      const lat = startLatLng.lat + (endLatLng.lat - startLatLng.lat) * easeProgress;
+      const lng = startLatLng.lng + (endLatLng.lng - startLatLng.lng) * easeProgress;
+      
+      marker.setLatLng([lat, lng]);
+      
+      // If following this device, keep it centered
+      if (followingDeviceRef.current === deviceId && mapRef.current) {
+        mapRef.current.panTo([lat, lng], { animate: true, duration: 0.25 });
+      }
+      
+      // Continue animation if not complete
+      if (progress < 1) {
+        animationFrameRef.current[deviceId] = requestAnimationFrame(animate);
+      } else {
+        // Animation complete - reopen popup if it was open
+        if (popupStateRef.current[deviceId]) {
+          setTimeout(() => {
+            marker.openPopup();
+            popupStateRef.current[deviceId] = false;
+          }, 100);
+        }
+        
+        // After animation completes, start predictive positioning if vehicle is moving
+        if (speed > 0.5) { // Only predict if moving faster than 0.5 knots (~1 km/h)
+          startPredictivePositioning(marker, deviceId, endLatLng, speed, course);
+        }
+      }
+    };
+    
+    animate();
+  };
+
+  // Predictive positioning - extrapolate position based on speed and direction
+  const startPredictivePositioning = (
+    marker: L.Marker,
+    deviceId: number,
+    startPos: L.LatLng,
+    speed: number, // in knots
+    course: number // direction in degrees
+  ) => {
+    const startTime = Date.now();
+    lastPositionRef.current[deviceId] = {
+      lat: startPos.lat,
+      lng: startPos.lng,
+      course,
+      speed,
+      timestamp: startTime
+    };
+
+    const predict = () => {
+      const elapsed = Date.now() - startTime;
+      const elapsedSeconds = elapsed / 1000;
+      
+      // Calculate distance traveled (speed in knots, convert to degrees)
+      // 1 knot = 1.852 km/h
+      // At equator: 1 degree latitude ≈ 111 km
+      const speedKmH = speed * 1.852;
+      const distanceKm = (speedKmH / 3600) * elapsedSeconds; // distance in km
+      const distanceDeg = distanceKm / 111; // approximate degrees
+      
+      // Calculate new position based on course
+      const courseRad = (course * Math.PI) / 180;
+      const deltaLat = distanceDeg * Math.cos(courseRad);
+      const deltaLng = distanceDeg * Math.sin(courseRad) / Math.cos((startPos.lat * Math.PI) / 180);
+      
+      const newLat = startPos.lat + deltaLat;
+      const newLng = startPos.lng + deltaLng;
+      
+      marker.setLatLng([newLat, newLng]);
+      
+      // If following this device, keep it centered during prediction
+      if (followingDeviceRef.current === deviceId && mapRef.current) {
+        mapRef.current.panTo([newLat, newLng], { animate: true, duration: 0.25 });
+      }
+      
+      // Continue prediction for up to 8 seconds (before next update likely arrives)
+      if (elapsed < 8000) {
+        animationFrameRef.current[deviceId] = requestAnimationFrame(predict);
+      }
+    };
+    
+    predict();
+  };
+
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -121,6 +242,14 @@ export default function MapView({ devices, positions }: MapViewProps) {
 
       mapRef.current = map;
 
+      // Disable follow mode when user manually moves the map
+      map.on('dragstart', () => {
+        if (followingDeviceRef.current !== null) {
+          setFollowMode(false);
+          followingDeviceRef.current = null;
+        }
+      });
+
       console.log('✓ Map initialized successfully with', layer.name);
       
       // Give the map time to fully initialize before adding markers
@@ -133,6 +262,12 @@ export default function MapView({ devices, positions }: MapViewProps) {
     }
 
     return () => {
+      // Cancel all ongoing animations
+      Object.values(animationFrameRef.current).forEach(frameId => {
+        if (frameId) cancelAnimationFrame(frameId);
+      });
+      animationFrameRef.current = {};
+      
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -196,11 +331,38 @@ export default function MapView({ devices, positions }: MapViewProps) {
           const existingMarker = markersRef.current[device.id];
           
           if (existingMarker) {
-            // Just update the position and icon - DON'T recreate the marker
-            existingMarker.setLatLng(latLng);
+            // Get current position for smooth transition
+            const currentLatLng = existingMarker.getLatLng();
+            const newLatLng = L.latLng(position.latitude, position.longitude);
+            
+            // Calculate distance to determine if we should animate
+            const distance = currentLatLng.distanceTo(newLatLng);
+            
+            // Only animate if the distance is reasonable (not a huge jump)
+            // This prevents weird animations when position jumps drastically
+            if (distance > 0 && distance < 5000) { // 5km threshold
+              // Smooth transition with predictive positioning
+              animateMarker(
+                existingMarker, 
+                device.id,
+                currentLatLng, 
+                newLatLng, 
+                position.speed,
+                position.course
+              );
+            } else {
+              // For large jumps, just set the position directly
+              existingMarker.setLatLng(latLng);
+              // Cancel any ongoing animation
+              if (animationFrameRef.current[device.id]) {
+                cancelAnimationFrame(animationFrameRef.current[device.id]);
+              }
+            }
             
             // Update icon to reflect current status and speed
             const iconColor = device.status === 'online' ? '#22c55e' : '#ef4444';
+            // Get rotation angle from course (0 = North, 90 = East, 180 = South, 270 = West)
+            const rotation = position.course || 0;
             const iconHtml = `
               <div style="position: relative; width: 120px; height: 60px; margin-left: -40px; margin-top: -20px;">
                 <!-- Vehicle Name Label -->
@@ -223,12 +385,13 @@ export default function MapView({ devices, positions }: MapViewProps) {
                   text-overflow: ellipsis;
                 ">${device.name}</div>
                 
-                <!-- Car Icon -->
+                <!-- Car Icon with rotation -->
                 <div style="
                   position: absolute;
                   top: 20px;
                   left: 50%;
-                  transform: translateX(-50%);
+                  transform: translateX(-50%) rotate(${rotation}deg);
+                  transition: transform 1s ease-out;
                   width: 36px;
                   height: 36px;
                   background: ${iconColor};
@@ -270,12 +433,62 @@ export default function MapView({ devices, positions }: MapViewProps) {
             });
             
             existingMarker.setIcon(updatedIcon);
+            
+            // Update popup content with current data
+            const popupContent = `
+              <div style="min-width: 180px; max-width: 220px;">
+                <h3 style="margin: 0 0 6px 0; font-weight: bold; font-size: 13px; line-height: 1.2;">${device.name}</h3>
+                <div style="font-size: 11px; line-height: 1.4; margin-bottom: 8px;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                    <span style="color: #666;">Status:</span>
+                    <span style="color: ${iconColor}; font-weight: 600;">${device.status}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                    <span style="color: #666;">Speed:</span>
+                    <span style="font-weight: 600;">${Math.round(position.speed * 1.852)} km/h</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                    <span style="color: #666;">Updated:</span>
+                    <span style="font-size: 10px;">${new Date(position.fixTime).toLocaleTimeString()}</span>
+                  </div>
+                  ${position.address ? `<div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #eee; font-size: 10px; color: #666; max-height: 32px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${position.address}</div>` : ''}
+                </div>
+                <button 
+                  onclick="window.showHistoryMenu(${device.id})"
+                  style="
+                    width: 100%;
+                    background: #4f46e5;
+                    color: white;
+                    border: none;
+                    padding: 6px 10px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-size: 11px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 4px;
+                  "
+                  onmouseover="this.style.background='#4338ca'"
+                  onmouseout="this.style.background='#4f46e5'"
+                >
+                  <span>📍</span>
+                  <span>View History</span>
+                </button>
+              </div>
+            `;
+            
+            existingMarker.getPopup()?.setContent(popupContent);
+            
             markersUpdated++;
           } else {
             // Create new marker ONLY if it doesn't exist
             try {
               // Create custom car icon
               const iconColor = device.status === 'online' ? '#22c55e' : '#ef4444';
+              // Get rotation angle from course
+              const rotation = position.course || 0;
               const iconHtml = `
                 <div style="position: relative; width: 120px; height: 60px; margin-left: -40px; margin-top: -20px;">
                   <!-- Vehicle Name Label -->
@@ -298,12 +511,13 @@ export default function MapView({ devices, positions }: MapViewProps) {
                     text-overflow: ellipsis;
                   ">${device.name}</div>
                   
-                  <!-- Car Icon -->
+                  <!-- Car Icon with rotation -->
                   <div style="
                     position: absolute;
                     top: 20px;
                     left: 50%;
-                    transform: translateX(-50%);
+                    transform: translateX(-50%) rotate(${rotation}deg);
+                    transition: transform 1s ease-out;
                     width: 36px;
                     height: 36px;
                     background: ${iconColor};
@@ -353,17 +567,22 @@ export default function MapView({ devices, positions }: MapViewProps) {
               
               // Add popup with history button
               const popupContent = `
-                <div style="min-width: 220px;">
-                  <h3 style="margin: 0 0 8px 0; font-weight: bold; font-size: 14px;">${device.name}</h3>
-                  <div style="font-size: 12px; line-height: 1.6; margin-bottom: 12px;">
-                    <div><strong>Status:</strong> <span style="color: ${iconColor};">${device.status}</span></div>
-                    <div><strong>Speed:</strong> ${Math.round(position.speed * 1.852)} km/h</div>
-                    <div><strong>Last Update:</strong> ${new Date(position.fixTime).toLocaleString()}</div>
-                    ${position.address ? `<div><strong>Location:</strong> ${position.address}</div>` : ''}
-                    <div style="margin-top: 8px;">
-                      <strong>Coordinates:</strong><br/>
-                      ${position.latitude.toFixed(6)}, ${position.longitude.toFixed(6)}
+                <div style="min-width: 180px; max-width: 220px;">
+                  <h3 style="margin: 0 0 6px 0; font-weight: bold; font-size: 13px; line-height: 1.2;">${device.name}</h3>
+                  <div style="font-size: 11px; line-height: 1.4; margin-bottom: 8px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                      <span style="color: #666;">Status:</span>
+                      <span style="color: ${iconColor}; font-weight: 600;">${device.status}</span>
                     </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                      <span style="color: #666;">Speed:</span>
+                      <span style="font-weight: 600;">${Math.round(position.speed * 1.852)} km/h</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                      <span style="color: #666;">Updated:</span>
+                      <span style="font-size: 10px;">${new Date(position.fixTime).toLocaleTimeString()}</span>
+                    </div>
+                    ${position.address ? `<div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #eee; font-size: 10px; color: #666; max-height: 32px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${position.address}</div>` : ''}
                   </div>
                   <button 
                     onclick="window.showHistoryMenu(${device.id})"
@@ -372,15 +591,15 @@ export default function MapView({ devices, positions }: MapViewProps) {
                       background: #4f46e5;
                       color: white;
                       border: none;
-                      padding: 8px 12px;
+                      padding: 6px 10px;
                       border-radius: 6px;
                       cursor: pointer;
-                      font-size: 13px;
+                      font-size: 11px;
                       font-weight: 600;
                       display: flex;
                       align-items: center;
                       justify-content: center;
-                      gap: 6px;
+                      gap: 4px;
                     "
                     onmouseover="this.style.background='#4338ca'"
                     onmouseout="this.style.background='#4f46e5'"
@@ -392,11 +611,19 @@ export default function MapView({ devices, positions }: MapViewProps) {
               `;
               
               marker.bindPopup(popupContent, {
-                maxWidth: 300,
-                className: 'custom-popup'
+                maxWidth: 220,
+                minWidth: 180,
+                className: 'custom-popup',
+                autoClose: false,
+                closeOnClick: false,
+                autoPan: false, // Prevent auto-panning when marker moves
+                keepInView: true
               });
               marker.on('click', () => {
                 setSelectedDevice(device);
+                // Enable follow mode when clicking marker
+                setFollowMode(true);
+                followingDeviceRef.current = device.id;
                 // Zoom to the clicked marker
                 map.setView(latLng, 16, {
                   animate: true,
@@ -457,6 +684,9 @@ export default function MapView({ devices, positions }: MapViewProps) {
       mapRef.current.setView([position.latitude, position.longitude], 16);
       markersRef.current[device.id]?.openPopup();
       setSelectedDevice(device);
+      // Enable follow mode for this device
+      setFollowMode(true);
+      followingDeviceRef.current = device.id;
     }
   };
 
@@ -539,9 +769,46 @@ export default function MapView({ devices, positions }: MapViewProps) {
           style={{ zIndex: 1 }}
         />
         
-        {/* Map Layer Selector */}
+        {/* Map Controls - Top Right */}
         <div className="absolute top-4 right-4 z-[1000] space-y-2">
-          {/* Layer Selector Button */}
+          {/* Follow Mode Toggle */}
+          {selectedDevice && (
+            <button
+              onClick={() => {
+                if (followMode) {
+                  setFollowMode(false);
+                  followingDeviceRef.current = null;
+                } else {
+                  setFollowMode(true);
+                  followingDeviceRef.current = selectedDevice.id;
+                  const position = getDevicePosition(selectedDevice.id);
+                  if (position && mapRef.current) {
+                    mapRef.current.setView([position.latitude, position.longitude], 16);
+                  }
+                }
+              }}
+              className={`w-full rounded-lg shadow-lg p-3 transition-all flex items-center gap-2 ${
+                followMode 
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700' 
+                  : 'bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <div className="text-left">
+                <div className="text-xs font-semibold">
+                  {followMode ? 'Following' : 'Follow'}
+                </div>
+                <div className="text-xs opacity-90">
+                  {selectedDevice.name}
+                </div>
+              </div>
+            </button>
+          )}
+
+          {/* Map Layer Selector */}
           <div className="relative">
             <button
               onClick={() => setShowMapSelector(!showMapSelector)}

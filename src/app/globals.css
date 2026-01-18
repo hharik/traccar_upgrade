@@ -49,6 +49,25 @@ body {
   margin: 0 !important;
 }
 
+/* Smooth popup positioning */
+.custom-popup {
+  transition: transform 0.3s ease-out !important;
+}
+
+.leaflet-popup {
+  transition: transform 0.3s ease-out !important;
+}
+
+/* Make popup container smooth */
+.leaflet-popup-content-wrapper {
+  transition: all 0.2s ease-out;
+}
+
+/* Prevent popup jitter during marker animation */
+.leaflet-popup-tip-container {
+  transition: all 0.2s ease-out;
+}
+
 /* Navigation animations */
 @keyframes bounce-subtle {
   0%, 100% {
